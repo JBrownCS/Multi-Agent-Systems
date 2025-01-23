@@ -1,3 +1,29 @@
+'''
+Define the Agent Class for the Cooperative and Competitive Environments
+'''
+
+
+class Agent:
+    def __init__(self, id, team):
+        self.team = team
+        self.x = 0
+        self.y = 0
+        self.id = id
+        self.isEliminated = False
+
+    def setCoords(self, x, y):
+        self.x = x
+        self.y = y
+
+    def getPos(self):
+        return (self.x, self.y)
+
+    pass
+
+
+#########################################################################
+
+
 # Discrete allows us to define how many actions can occur in the space
 # Box allows us to record the state of the space
 # Turtle is for drawing each step of the environment
@@ -17,7 +43,6 @@ TELEPORT = 4
 # Define the possible maze values for visualization
 WALL = -1
 SPACE = 0
-
 TRAP = 12
 GOAL = 13
 
@@ -38,16 +63,28 @@ class MazeEnv(Env):
                                      dtype=np.int16)
         self.reward_range = (-200, 200)
 
-        # Initialize the current agent, world, and state of the world
+        # Initialize the agent teams, world, and state of the world
         self.numAgents = numOfAgents
         self.AGENTS = range(1, self.numAgents + 1)
+        self.Team1 = []
+        self.Team2 = []
+        for agent in range(self.numAgents + 1):
+            if agent % 2 != 0:
+                self.Team1.append(agent)
+            else:
+                self.Team2.append(agent)
         self.current_agent = 1
         self.world = np.copy(self.world_start)
         self.state = 'P'
         self.current_step = 0
-        self.max_step = 60
+        self.max_step = (np.size(self.world, 0)**2) * self.numAgents
         self.exploration_prize = None
-        self.bonus_reward = 0
+        # Separate Team rewards
+        self.team1Win = False
+
+        self.team1Reward = 0
+        self.team2Reward = 0
+
         self.current_episode = 0
         self.success_episode = []
 
@@ -63,10 +100,6 @@ class MazeEnv(Env):
         self.pen.color("white")
         self.pen.penup()
         self.pen.speed(0)
-
-    # Get current Episode number
-    def getEpisodeNumber(self):
-        return self.current_episode
 
     # Draw the maze on the turtle screen
     def drawMaze(self, maze):
@@ -92,7 +125,12 @@ class MazeEnv(Env):
                     self.pen.goto(screen_x, screen_y)
                     self.pen.stamp()
 
-                if value in self.AGENTS:
+                if value in self.Team1:
+                    self.pen.shape("turtle")
+                    self.pen.color("red")
+                    self.pen.goto(screen_x, screen_y)
+                    self.pen.stamp()
+                if value in self.Team2:
                     self.pen.shape("turtle")
                     self.pen.color("blue")
                     self.pen.goto(screen_x, screen_y)
@@ -115,10 +153,6 @@ class MazeEnv(Env):
                     self.pen.penup()
         self.window.update()
 
-    # Function to teleport agents
-    def teleportAgent(self, current_agent):
-        pass
-
     # Function to move the current agent about the maze
     def moveAgent(self, action):
         # Current position[0] = x, current_pos[1] = y
@@ -131,14 +165,17 @@ class MazeEnv(Env):
 
             # If the other agent is in the next position, don't move
             if new_pos[0] > SPACE and int(self.world[new_pos]) in self.AGENTS:
+                print("True1")
                 new_pos = (current_pos[0], current_pos[1])
 
             # If the agent hits a wall, don't move
             if new_pos[0] > SPACE and int(self.world[new_pos]) == WALL:
+                print("True2")
                 new_pos = (current_pos[0], current_pos[1])
 
             # If the agent hits a wall, don't move
             if new_pos[0] < 1:
+                print("True3")
                 new_pos = (current_pos[0], current_pos[1])
 
             # If the space is not a trap (0), move to it and set the previous spot to 0
@@ -167,6 +204,7 @@ class MazeEnv(Env):
         # If the agent goes right
         if action == RIGHT:
             new_pos = (current_pos[0], current_pos[1] + 1)
+            print(f"New X: {new_pos[0]}, New Y:{new_pos[1]}")
             limit = np.size(self.world, 1)
 
             # Making sure the agent does not go out of bounds so newpos[0] must be < max width of maze
@@ -211,22 +249,22 @@ class MazeEnv(Env):
             # Making sure the agent does not go out of bounds so newpos[0] must be > 0
 
             # If the other agent is in the next position, don't move
-            if new_pos[0] < limit and int(self.world[new_pos[0], new_pos[1]]) in self.AGENTS:
+            if new_pos[0] < limit and int(self.world[new_pos]) in self.AGENTS:
                 pass
 
             # If there is a wall then the agent does not move
-            if (new_pos[0] < limit and int(self.world[new_pos[0], new_pos[1]]) == WALL) or new_pos[0] == limit:
+            if (new_pos[0] < limit and int(self.world[new_pos]) == WALL) or new_pos[0] == limit:
                 pass
 
             # If the space is not a trap (0), move to it and set the previous spot to 0
-            if new_pos[0] < limit and int(self.world[new_pos[0], new_pos[1]]) == SPACE:
+            if new_pos[0] < limit and int(self.world[new_pos]) == SPACE:
                 self.world[new_pos] = self.current_agent
                 self.world[current_pos] = SPACE
                 # Reward Exploration
                 self._exploration_prize(new_pos)
 
             # If the space is a trap (3), end the game
-            if new_pos[0] < limit and int(self.world[new_pos[0], new_pos[1]]) == TRAP:
+            if new_pos[0] < limit and int(self.world[new_pos]) == TRAP:
                 self.world[new_pos] = self.current_agent
                 self.world[current_pos] = SPACE
                 self.state = 'Failed'
@@ -235,7 +273,7 @@ class MazeEnv(Env):
 
 
             # If the agent reaches the goal End the game
-            elif new_pos[0] < limit and int(self.world[new_pos[0], new_pos[1]]) == GOAL:
+            elif new_pos[0] < limit and int(self.world[new_pos]) == GOAL:
                 self.world[new_pos] = self.current_agent
                 self.world[current_pos] = SPACE
                 self.state = 'Succeeded'
@@ -249,21 +287,21 @@ class MazeEnv(Env):
             # Making sure the agent does not go out of bounds so newpos[0] must be > 0
 
             # If the other agent is in the next position, don't move
-            if new_pos[1] >= SPACE and int(self.world[new_pos[0], new_pos[1]]) in self.AGENTS:
+            if new_pos[1] >= SPACE and int(self.world[new_pos]) in self.AGENTS:
                 pass
 
             # If there is a wall, then the agent does not move
-            if new_pos[1] >= SPACE and int(self.world[new_pos[0], new_pos[1]]) == WALL:
+            if new_pos[1] >= SPACE and int(self.world[new_pos]) == WALL:
                 pass
 
             # If the space is not a trap (0), move to it and set the previous spot to 0
-            if new_pos[1] >= SPACE and int(self.world[new_pos[0], new_pos[1]]) == SPACE:
+            if new_pos[1] >= SPACE and int(self.world[new_pos]) == SPACE:
                 self.world[new_pos] = self.current_agent
                 self.world[current_pos] = SPACE
                 # Reward Exploration
                 self._exploration_prize(new_pos)
             # If the space is a trap (3), end the game
-            if new_pos[1] >= SPACE and int(self.world[new_pos[0], new_pos[1]]) == TRAP:
+            if new_pos[1] >= SPACE and int(self.world[new_pos]) == TRAP:
                 self.world[new_pos] = self.current_agent
                 self.world[current_pos] = SPACE
                 self.state = 'Failed'
@@ -272,7 +310,7 @@ class MazeEnv(Env):
 
 
             # If the agent reaches the goal
-            elif new_pos[1] >= SPACE and (int(self.world[new_pos[0], new_pos[1]]) == GOAL):
+            elif new_pos[1] >= SPACE and (int(self.world[new_pos]) == GOAL):
                 self.world[new_pos] = self.current_agent
                 self.world[current_pos] = SPACE
                 self.state = 'Succeeded'
@@ -282,65 +320,37 @@ class MazeEnv(Env):
         # Teleport the other agent
         if action == TELEPORT:
             # keep current position of current agent, move the other agent
-
             other_agent = (self.current_agent + 1) % (self.numAgents + 1)
             if other_agent == 0:
                 other_agent = 1
-            file = open("trial/render.txt", 'a')
-            file.write(f"Agent {self.current_agent} is teleporting Agent {other_agent} forward      ")
-            file.close()
 
-            other_agent_pos = np.where(self.world == other_agent)
-            other_next_pos = (other_agent_pos[0] + 3, other_agent_pos[1])
-            #print(f"Other agent Original [X]= {other_agent_pos[0]} [Y]= {other_agent_pos[1]}")
-            posChanged = False
-            # If the agent is at the edge, don't teleport
+            other_player_pos = np.where(self.world == other_agent)
+            other_next_pos = (other_player_pos[0] + 3, other_player_pos[1])
+            # Set the next position of the other agent
 
-            if other_agent_pos[0] == np.size(self.world, 0) - 2:
-                self.state = 'P'
-                return
+            # If the other agent is still within top
+            if int(other_next_pos[0]) < np.size(self.world, 0) - 2:
+                pass
 
-            # If agent destination is in bounds, proceed to check where it lands
             else:
+                # The other agent moves out of bounds, so needs to be in bounds
                 increment = 1
+                while other_next_pos[0] >= np.size(self.world, 0) - 2 and increment <= 3:
+                    other_next_pos = (other_player_pos[0] - increment, other_player_pos[1])
+                    increment += 1
 
+            # Check if the other agent teleports into a trap or the goal
+            # Otherwise the maze is still playable
+            if int(self.world[other_next_pos]) == TRAP:
+                self.state = 'Failed'
+            elif int(self.world[other_next_pos]) == GOAL:
+                self.state = 'Succeeded'
+            else:
+                self.state = 'P'
 
-                # Make sure the agent teleports to a reasonable destination
-                while increment < 4:
-                    if other_next_pos[0] > np.size(self.world, 0) - 2:
-                        other_next_pos = (other_next_pos[0] - 1, other_next_pos[1])
-                        increment += 1
-                        posChanged = True
-
-                    elif self.world[other_next_pos] in self.AGENTS:
-                        other_next_pos = (other_next_pos[0] - 1, other_next_pos[1])
-                        increment += 1
-                        posChanged = True
-
-                    elif self.world[other_next_pos] == WALL:
-                        other_next_pos = (other_next_pos[0] - 1, other_next_pos[1])
-                        increment += 1
-                        posChanged = True
-
-                    else:
-                        increment += 1
-                    #print("Position change [0] = ", other_next_pos[0])
-
-                # If the position changed, check if the other agent teleports into a trap or the goal
-                # Otherwise the maze is still playable
-
-                if self.world[other_next_pos] == TRAP:
-                    self.state = 'Failed'
-                elif self.world[other_next_pos] == GOAL:
-                    self.state = 'Succeeded'
-                else:
-                    self.state = 'P'
-
-            # Check if the position changed
-            if posChanged:
-                self.world[other_next_pos] = other_agent
-                self.world[other_agent_pos] = SPACE
-
+            self.world[other_next_pos] = other_agent
+            self.world[other_player_pos] = SPACE
+            # Reward Exploration
             self._exploration_prize(other_next_pos)
 
     # Function to perform each action per timestep
@@ -352,58 +362,62 @@ class MazeEnv(Env):
         -Increase number of steps taken
         -Print the world with the updated agent location
         '''
-        file = open('trial/render.txt', 'a')
-        file.write(f"Step {self.current_step} \n")
+        print(f"Step {self.current_step}")
+        # Have all the agents move
         self.moveAgent(action)
+
         self.current_step += 1
-        if action == LEFT:
-            file.write(f"Agent {self.current_agent} is going left      ")
-        if action == RIGHT:
-            file.write(f"Agent {self.current_agent} is going right      ")
-        if action == BACKWARD:
-            file.write(f"Agent {self.current_agent} is going backward      ")
-        if action == FORWARD:
-            file.write(f"Agent {self.current_agent} is going forward      ")
-
-        file.write(str(self.world))
+        print(self.world)
         self.drawMaze(self.world)
-        file.write('\n')
-
-        reward = 0
-        done = False
+        print()
 
         # Reward Assignment
         if self.state == "Succeeded":
-            file.write(f'Agent {self.current_agent} found the exit')
-            # reward = 100 * (1 + 1 / self.current_step)
-            reward = 200 * (1 + 1 / self.current_step)
+            print(f'Agent {self.current_agent} found the exit')
+            if self.team1Win:
+                self.team1Reward = 100 * (1 + 1 / self.current_step)
+                self.team2Reward = -200
+            else:
+                self.team2Reward = 100 * (1 + 1 / self.current_step)
+                self.team1Reward = -200
             done = True
         elif self.state == 'Failed':
-            file.write(f'Agent {self.current_agent} fell into a trap')
-            reward = -200
+            print(f'Agent {self.current_agent} fell into a trap')
+            if self.team1Win:
+                self.team1Reward = -200
+                self.team2Reward = 100 * (1 + 1 / self.current_step)
+            else:
+                self.team2Reward = -200
+                self.team1Reward = 100 * (1 + 1 / self.current_step)
             done = True
         elif self.state == 'P':
-            reward = -2
+            self.team1Reward = -2
+            self.team2Reward = -2
             done = False
 
         # Have new episodes be created
         if self.current_step >= self.max_step:
-            file.write(f'Max TimeSteps Reached! Episode {self.current_episode + 1} will start')
+            print(f'New episode number {self.current_episode + 1}')
             done = True
 
-        file.close()
-        # Switch the agent turns
+        #Switch Agent Turns
         new_agent = (self.current_agent + 1) % (self.numAgents + 1)
         if new_agent == 0:
             new_agent = 1
         self.current_agent = new_agent
 
-        # Apply the bonus reward for this step then reset him to 0
-        reward += self.bonus_reward
-        self.bonus_reward = 0
+        # Apply Agent rewards for this step, then set it to 0
+        self.team1Reward += self.t1bonus_reward
+        self.team1Reward += self.t2bonus_reward
+        #Reward will be array for team1 reward, team2 reward
+        reward = self.team1Reward - self.team2Reward
+        rewardByTeam = [self.team1Reward, self.team2Reward]
+
+        self.t1bonus_reward = 0
+        self.t2bonus_reward = 0
 
         if done:
-            self.render(self.state, reward)
+            self.render(self.state, rewardByTeam)
             self.current_episode += 1
             self.window.title(f"Multi Agent Maze --- Episode{self.current_episode + 1}")
 
@@ -412,18 +426,18 @@ class MazeEnv(Env):
         return obs, reward, done, {'state': self.state}
 
     # Render the environment
-    def render(self, state, score):
+    def render(self, state, teamRewards):
         # Add a successfull episode
         self.success_episode.append(
             'Success' if state == 'Succeeded' else 'Failure')
 
         file = open('trial/render.txt', 'a')
-        file.write('\n \n')
+        file.write('----------------------------\n')
         file.write(f'Episode number {self.current_episode}\n')
         file.write(
             f'{self.success_episode[-1]} in {self.current_step} steps\n')
-        file.write(f"Score: {score} \n")
-        file.write('----------------------------\n \n')
+        file.write(
+            f'Team 1 Score: {teamRewards[0]} | Team 2 Score: {teamRewards[1]} \n')
         file.close()
 
     # Function that resets the environment
@@ -433,17 +447,16 @@ class MazeEnv(Env):
         # P means the game is playable, W means somenone wins, L someone lose
         self.state = 'P'
         self.current_step = 0
-        self.max_step = 60
+        self.max_step = (np.size(self.world, 0)**2) * self.numAgents
         self.world = np.copy(self.world_start)
-        file = open('trial/render.txt', 'a')
-        file.write(f"----Current Episode: {self.current_episode} ---- \n")
 
         self.exploration_prize = np.ones(
             shape=(np.size(self.world, 0),
                    np.size(self.world, 1))
         )
 
-        self.bonus_reward = 0
+        self.t1bonus_reward = 0
+        self.t2bonus_reward = 0
 
         return self.createObservation()
 
@@ -466,18 +479,29 @@ class MazeEnv(Env):
         """
         if self.exploration_prize[next_pos] == 1:
             self.exploration_prize[next_pos] = 0
-            self.bonus_reward += 1
+            if self.current_agent in self.Team1:
+                self.t1bonus_reward += 1
+            else:
+                self.t2bonus_reward += 1
 
 
 if __name__ == "__main__":
     # Practice Map
     world = np.array([[-1, -1, -1, -1, -1, -1, -1, -1, -1],
-                      [-1, 1, 0, 0, 0, 0, 2, 0, -1],
+                      [-1, 1, 0, 3, 0, 2, 0, 4, -1],
                       [-1, 0, 0, 12, 0, 0, 0, 0, -1],
                       [-1, 0, 0, 0, 0, 0, 0, 0, -1],
-                      [-1, 0, 0, 0, 0, 0, 12, 0, -1],
-                      [-1, 0, 0, 0, 13, 0, 0, 0, -1],
-                      [-1, -1, -1, -1, -1, -1, -1, -1, -1]])
+                      [-1, 0, 0, 12, 12, 0, 0, 0, -1],
+                      [-1, 0, 12, 0, 13, 0, 12, 0, -1],
+                      [-1, -1, -1, 13, -1, -1, -1, -1, -1]])
+
+    worldA = np.array([[-1, -1, -1, -1, -1, -1, -1, -1, -1],
+                       [-1, 1, 0, 3, 0, 2, 0, 4, -1],
+                       [-1, 0, 0, 0, 0, 0, 0, 0, -1],
+                       [-1, 0, 0, 0, 0, 0, 0, 0, -1],
+                       [-1, 0, 0, 0, 0, 0, 0, 0, -1],
+                       [-1, 0, 0, 0, 13, 0, 0, 0, -1],
+                       [-1, -1, -1, 13, -1, -1, -1, -1, -1]])
 
     # CSGO Dusk 2
     World2 = [
@@ -534,23 +558,8 @@ if __name__ == "__main__":
         [-1, 0, 0, 0, 0, -1, -1, 0, 0, 0, 0, -1],
         [-1, 0, 0, 0, -1, -1, -1, -1, 0, 0, 0, -1],
         [-1, -1, 0, 0, 0, 0, 0, 0, 0, -1, 0, -1],
-        [-1, 0, 0, 12, 0, 0, 0, 0, 0, -1, 0, -1],
-        [-1, 0, 0, 0, 12, 0, 0, 0, 0, -1, 0, -1],
-        [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1],
-        [-1, -1, -1, 0, 0, 0, -1, -1, -1, 0, 0, -1],
-        [-1, 0, 0, 0, 0, 0, 13, 0, 0, 0, 0, -1],
-        [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
-    ])
-
-    world3_2 = np.array([
-        [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
-        [-1, 1, 2, 3, 0, 4, 5, 0, 6, 7, 8, -1],
-        [-1, -1, -1, 0, 0, 0, 0, 0, 0, 0, -1, -1],
-        [-1, 0, 0, 0, 0, -1, -1, 0, 0, 0, 0, -1],
-        [-1, 0, 0, 0, -1, -1, -1, -1, 0, 0, 0, -1],
-        [-1, -1, 0, 0, 0, 0, 0, 0, 0, -1, 0, -1],
-        [-1, 0, 0, 12, 0, 0, 0, 0, 0, -1, 0, -1],
-        [-1, 0, 0, 0, 12, 0, 0, 0, 0, -1, 0, -1],
+        [-1, 0, 12, 12, 0, 0, 0, 0, 0, -1, 0, -1],
+        [-1, 0, 0, 12, 12, 0, 0, 0, 0, -1, 0, -1],
         [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1],
         [-1, -1, -1, 0, 0, 0, -1, -1, -1, 0, 0, -1],
         [-1, 0, 0, 0, 0, 0, 13, 0, 0, 0, 0, -1],
@@ -579,20 +588,20 @@ if __name__ == "__main__":
 
     world4 = np.array([
         [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
-        [-1, 1, 2, 3, -1, -1, -1, -1, -1, -1, -1, 5, 6, 7, 8, -1],
-        [-1, 9, -1, 0, -1, 0, -1, 4, -1, 0, -1, 0, 10, -1, 0, -1],
+        [-1, 0, 1, 0, -1, -1, -1, -1, -1, -1, -1, 0, 2, 0, 0, -1],
+        [-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0, -1, 0, -1],
         [-1, 0, 0, 0, 0, 0, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1],
         [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1],
         [-1, 0, -1, 0, -1, -1, -1, 0, -1, 0, 0, 0, 0, -1, 0, -1],
         [-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1],
-        [-1, 12, -1, 0, -1, 0, -1, 0, -1, 0, 0, 12, 0, 0, 0, -1],
+        [-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0, 12, 0, 0, 0, -1],
         [-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1],
         [-1, 0, -1, 0, -1, -1, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1],
-        [-1, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, -1],
+        [-1, 0, -1, 0, 0, 0, 12, 0, -1, 0, 0, 0, 0, -1, 0, -1],
         [-1, 0, -1, 0, -1, -1, -1, 0, -1, 0, 0, 0, 0, 0, 0, -1],
         [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1],
         [-1, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, -1],
-        [-1, 0, 0, 12, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0, -1],
+        [-1, 0, 0, 0, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0, -1],
         [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
     ])
     # Battlefield 4  Golmund Railway (20x20)
@@ -645,22 +654,19 @@ if __name__ == "__main__":
             [0, 0, 0, 0, 0, 0, -1, -1, 0, 0, 13, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0],
             [0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 13, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0]
         ])
-    import time
-
-    print("Start: ", time.time())
     # Create the new environment
-    env = MazeEnv(world4, numOfAgents=10)
-    numTotalEpisodes = 10
+    env = MazeEnv(worldA,numOfAgents = 4)
+    numTotalEpisodes = 3
 
     while env.current_episode < numTotalEpisodes:
         state = env.reset()
         done = False
-        score = 0
+        score1 = 0
+        score2 = 0
 
         while not done:
             action = env.action_space.sample()
             observation, reward, done, n_state = env.step(action)
-            score += reward
-        print(f"Episode:{env.current_episode} Score:{score}")
-
-    print("End: ", time.time())
+            score1 = reward[0]
+            score2 = reward[1]
+        print(f"Episode:{env.current_episode} \n Team 1 Score:{score1} \n Team 2 Score:{score2}")
